@@ -32,6 +32,11 @@ type Assert struct {
 	XMLEncoderFunc  func(io.Writer) *xml.Encoder
 	XMLDecoderFunc  func(io.Reader) *xml.Decoder
 	Golden          *golden.Golden
+
+	// NormalizeLineBreaks enables line-break normalization which replaces
+	// Windows' CRLF (\r\n) and Mac Classic CR (\r) line breaks with Unix's LF
+	// (\n) line breaks.
+	NormalizeLineBreaks bool
 }
 
 // New returns a new *Assert instance configured with default settings.
@@ -43,13 +48,14 @@ type Assert struct {
 // present on the provided struct.
 func New() *Assert {
 	return &Assert{
-		JSONEncoderFunc: newJSONEncoder,
-		JSONDecoderFunc: newJSONDecoder,
-		YAMLEncoderFunc: newYAMLEncoder,
-		YAMLDecoderFunc: newYAMLDecoder,
-		XMLEncoderFunc:  newXMLEncoder,
-		XMLDecoderFunc:  newXMLDecoder,
-		Golden:          golden.New(),
+		JSONEncoderFunc:     newJSONEncoder,
+		JSONDecoderFunc:     newJSONDecoder,
+		YAMLEncoderFunc:     newYAMLEncoder,
+		YAMLDecoderFunc:     newYAMLDecoder,
+		XMLEncoderFunc:      newXMLEncoder,
+		XMLDecoderFunc:      newXMLDecoder,
+		Golden:              golden.New(),
+		NormalizeLineBreaks: true,
 	}
 }
 
@@ -77,12 +83,18 @@ func (s *Assert) JSONMarshalingP(t *testing.T, v, want interface{}) {
 	require.NoErrorf(t, err, "failed to JSON marshal %T: %+v", v, v)
 
 	marshaled := buf.Bytes()
+	if s.NormalizeLineBreaks {
+		marshaled = normalizeLineBreaks(marshaled)
+	}
 
 	if s.Golden.Update() {
 		s.Golden.SetP(t, "goldsert_json", marshaled)
 	}
 
 	gold := s.Golden.GetP(t, "goldsert_json")
+	if s.NormalizeLineBreaks {
+		gold = normalizeLineBreaks(gold)
+	}
 	assert.JSONEq(t, string(gold), string(marshaled))
 
 	if reflect.ValueOf(want).Kind() != reflect.Ptr {
@@ -127,12 +139,18 @@ func (s *Assert) YAMLMarshalingP(t *testing.T, v, want interface{}) {
 	require.NoErrorf(t, err, "failed to YAML marshal %T: %+v", v, v)
 
 	marshaled := buf.Bytes()
+	if s.NormalizeLineBreaks {
+		marshaled = normalizeLineBreaks(marshaled)
+	}
 
 	if s.Golden.Update() {
 		s.Golden.SetP(t, "goldsert_yaml", marshaled)
 	}
 
 	gold := s.Golden.GetP(t, "goldsert_yaml")
+	if s.NormalizeLineBreaks {
+		gold = normalizeLineBreaks(gold)
+	}
 	assert.YAMLEq(t, string(gold), string(marshaled))
 
 	if reflect.ValueOf(want).Kind() != reflect.Ptr {
@@ -177,12 +195,18 @@ func (s *Assert) XMLMarshalingP(t *testing.T, v, want interface{}) {
 	require.NoErrorf(t, err, "failed to XML marshal %T: %+v", v, v)
 
 	marshaled := buf.Bytes()
+	if s.NormalizeLineBreaks {
+		marshaled = normalizeLineBreaks(marshaled)
+	}
 
 	if s.Golden.Update() {
 		s.Golden.SetP(t, "goldsert_xml", marshaled)
 	}
 
 	gold := s.Golden.GetP(t, "goldsert_xml")
+	if s.NormalizeLineBreaks {
+		gold = normalizeLineBreaks(gold)
+	}
 	assert.Equal(t, string(gold), string(marshaled))
 
 	if reflect.ValueOf(want).Kind() != reflect.Ptr {
@@ -251,4 +275,13 @@ func newXMLEncoder(w io.Writer) *xml.Encoder {
 // newXMLDecoder is the default XMLDecoderFunc used by Assert.
 func newXMLDecoder(r io.Reader) *xml.Decoder {
 	return xml.NewDecoder(r)
+}
+
+func normalizeLineBreaks(data []byte) []byte {
+	// Replace CRLF (\r\n, windows) with LF (\n, unix)
+	result := bytes.ReplaceAll(data, []byte{13, 10}, []byte{10})
+	// Replace CR (\r, mac) with LF (\n, unix)
+	result = bytes.ReplaceAll(result, []byte{13}, []byte{10})
+
+	return result
 }
